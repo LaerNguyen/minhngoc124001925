@@ -30,3 +30,9 @@ app.listen(PORT, () => {
  console.log(`📋 Test Danh sách đơn: GET http://localhost:${PORT}/api/orders`);
  console.log('====================================================');
 });
+const paymentRoutes = require('./routes/paymentRoutes');
+const aiRoutes = require('./routes/aiRoutes');
+const shippingRoutes = require('./routes/shippingRoutes');
+app.use('/api/payment', paymentRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/shipping', shippingRoutes);
