@@ -18,7 +18,6 @@ exports.chatWithAI = async (req, res) => {
     const lowerMsg = message.toLowerCase();
 
     // 2. Lấy dữ liệu sản phẩm từ MongoDB
-    // Lưu ý: phải có khoảng trắng giữa các tên trường
     const products = await Product.find()
       .populate('category', 'name')
       .select('name salePrice originalPrice stock rating description category')
@@ -84,7 +83,9 @@ QUY TẮC:
           systemInstruction
         });
 
-        const result = await model.generateContent(message);const reply = result.response.text();
+        // ĐÃ TÁCH DÒNG ĐÚNG CHUẨN ĐỂ TRÁNH LỖI CRASH SERVER
+        const result = await model.generateContent(message);
+        const reply = result.response.text();
 
         if (reply && reply.trim()) {
           return res.status(200).json({
@@ -101,7 +102,7 @@ QUY TẮC:
       }
     }
 
-    // 5. Chế độ dự phòng khi Gemini không khả dụng
+    // 5. Chế độ dự phòng khi Gemini không khả dụng (Smart Engine Fallback)
     const validProducts = safeProducts.filter(
       (p) => p.name && p.salePrice >= 0
     );
