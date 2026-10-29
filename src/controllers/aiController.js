@@ -4,7 +4,7 @@ const Product = require('../models/Product');
 // [POST] /api/ai/chat
 exports.chatWithAI = async (req, res) => {
   try {
-    // 1. Kiểm tra nội dung khách hàng
+    // 1. Kiểm tra nội dung câu hỏi từ client
     const rawMessage = req.body?.message;
 
     if (typeof rawMessage !== 'string' || !rawMessage.trim()) {
@@ -17,13 +17,13 @@ exports.chatWithAI = async (req, res) => {
     const message = rawMessage.trim();
     const lowerMsg = message.toLowerCase();
 
-    // 2. Lấy dữ liệu sản phẩm từ MongoDB
+    // 2. Lấy dữ liệu sản phẩm từ MongoDB Atlas (Kỹ thuật RAG)
     const products = await Product.find()
       .populate('category', 'name')
       .select('name salePrice originalPrice stock rating description category')
       .lean();
 
-    // Chuẩn hóa dữ liệu để tránh lỗi khi trường bị thiếu
+    // Chuẩn hóa dữ liệu để tránh lỗi khi trường bị trống
     const safeProducts = products.map((p) => ({
       ...p,
       name: typeof p.name === 'string' ? p.name : '',
@@ -38,7 +38,7 @@ exports.chatWithAI = async (req, res) => {
           : 'Khác'
     }));
 
-    // 3. Tạo danh sách sản phẩm cho Gemini
+    // 3. Xây dựng danh mục sản phẩm đưa vào Context Prompt cho AI
     const productCatalog = safeProducts
       .filter((p) => p.name)
       .map((p, idx) =>
@@ -54,20 +54,20 @@ exports.chatWithAI = async (req, res) => {
     const systemInstruction = `
 Bạn là LHU AI Shopping Assistant của Cửa hàng TMĐT Đại học Lạc Hồng.
 
-DANH SÁCH SẢN PHẨM:
+DANH SÁCH SẢN PHẨM HIỆN CÓ TRONG CỬA HÀNG:
 ${productCatalog || 'Hiện chưa có dữ liệu sản phẩm.'}
 
-QUY TẮC:
+QUY TẮC PHẢN HỒI:
 1. Xưng em hoặc shop, gọi khách là bạn.
-2. Chỉ tư vấn sản phẩm có trong danh sách.
-3. Không tự bịa tên, giá bán hoặc số lượng tồn kho.
-4. Nếu không có sản phẩm phù hợp, hãy nói rõ và hỏi thêm nhu cầu.
-5. Nếu khách hỏi giá, hãy ghi giá bằng VNĐ.
-6. Mời khách bấm nút Thêm giỏ để đặt hàng.
-7. Trả lời bằng tiếng Việt, thân thiện và dễ hiểu.
+2. Chỉ tư vấn các sản phẩm có trong danh sách trên.
+3. Tuyệt đối không tự bịa tên sản phẩm, giá bán hoặc số lượng tồn kho.
+4. Nếu không có sản phẩm phù hợp với yêu cầu của khách, hãy nói rõ và gợi ý khách xem các sản phẩm khác.
+5. Khi nhắc tới giá, hãy ghi rõ đơn vị VNĐ.
+6. Mời khách bấm nút Thêm vào giỏ hàng để mua.
+7. Trả lời bằng tiếng Việt, thân thiện, lịch sự và ngắn gọn.
 `;
 
-    // 4. Ưu tiên sử dụng Google Gemini
+    // 4. Ưu tiên sử dụng Google Gemini API
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (
@@ -83,7 +83,7 @@ QUY TẮC:
           systemInstruction
         });
 
-        // ĐÃ TÁCH DÒNG ĐÚNG CHUẨN ĐỂ TRÁNH LỖI CRASH SERVER
+        // Tách thành 2 dòng riêng biệt để tránh lỗi cú pháp
         const result = await model.generateContent(message);
         const reply = result.response.text();
 
@@ -96,20 +96,19 @@ QUY TẮC:
         }
       } catch (err) {
         console.error(
-          'Gemini API lỗi, chuyển sang chế độ dự phòng:',
+          'Gemini API gặp lỗi, chuyển sang cơ chế dự phòng (Fallback):',
           err.message
         );
       }
     }
 
-    // 5. Chế độ dự phòng khi Gemini không khả dụng (Smart Engine Fallback)
+    // 5. Chế độ dự phòng (Fallback / Smart Engine) khi Gemini gặp sự cố
     const validProducts = safeProducts.filter(
       (p) => p.name && p.salePrice >= 0
     );
 
     const matched = validProducts.filter((p) => {
       const productName = p.name.toLowerCase();
-
       return (
         lowerMsg.includes(productName) ||
         (lowerMsg.includes('rẻ') && p.salePrice < 300000)
@@ -122,8 +121,7 @@ QUY TẮC:
 
     if (!list.length) {
       reply =
-        'Chào bạn! Hiện shop chưa có dữ liệu sản phẩm để tư vấn. ' +
-        'Bạn vui lòng thử lại sau nhé!';
+        'Chào bạn! Hiện shop chưa có dữ liệu sản phẩm để tư vấn. Bạn vui lòng thử lại sau nhé!';
     } else {
       reply = matched.length
         ? 'Chào bạn! Đây là sản phẩm phù hợp với câu hỏi của bạn:\n\n'
@@ -146,7 +144,7 @@ QUY TẮC:
       reply
     });
   } catch (error) {
-    console.error('Lỗi chatWithAI:', error);
+    console.error('Lỗi hệ thống chatWithAI:', error);
 
     return res.status(500).json({
       success: false,
